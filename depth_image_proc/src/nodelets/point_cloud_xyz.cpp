@@ -34,14 +34,12 @@
 #include <ros/ros.h>
 #include <nodelet/nodelet.h>
 #include <image_transport/image_transport.h>
-#include <pcl_ros/point_cloud.h>
-#include <pcl/point_types.h>
 #include <sensor_msgs/image_encodings.h>
 #include <image_geometry/pinhole_camera_model.h>
 #include <boost/thread.hpp>
 #include "depth_traits.h"
 
-#include <pcl_conversions/pcl_conversions.h>
+#include <sensor_msgs/point_cloud2_proxy.h>
 
 namespace depth_image_proc {
 
@@ -56,7 +54,7 @@ class PointCloudXyzNodelet : public nodelet::Nodelet
 
   // Publications
   boost::mutex connect_mutex_;
-  typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
+  typedef sensor_msgs::PointCloud2 PointCloud;
   ros::Publisher pub_point_cloud_;
 
   image_geometry::PinholeCameraModel model_;
@@ -108,11 +106,12 @@ void PointCloudXyzNodelet::depthCb(const sensor_msgs::ImageConstPtr& depth_msg,
                                    const sensor_msgs::CameraInfoConstPtr& info_msg)
 {
   PointCloud::Ptr cloud_msg(new PointCloud);
-  cloud_msg->header = pcl_conversions::toPCL(depth_msg->header);
+  cloud_msg->header = depth_msg->header;
   cloud_msg->height = depth_msg->height;
   cloud_msg->width  = depth_msg->width;
   cloud_msg->is_dense = false;
-  cloud_msg->points.resize(cloud_msg->height * cloud_msg->width);
+  cloud_msg->is_bigendian = false;
+  sensor_msgs::setPointCloud2FieldsByString(*cloud_msg, 1, "xyz");
 
   // Update camera model
   model_.fromCameraInfo(info_msg);
@@ -147,14 +146,14 @@ void PointCloudXyzNodelet::convert(const sensor_msgs::ImageConstPtr& depth_msg, 
   float constant_y = unit_scaling / model_.fy();
   float bad_point = std::numeric_limits<float>::quiet_NaN();
 
-  PointCloud::iterator pt_iter = cloud_msg->begin();
+  sensor_msgs::PointXYZ *pt_iter = &(sensor_msgs::PointCloud2Proxy<sensor_msgs::PointXYZ>(*cloud_msg)[0]);
   const T* depth_row = reinterpret_cast<const T*>(&depth_msg->data[0]);
   int row_step = depth_msg->step / sizeof(T);
   for (int v = 0; v < (int)cloud_msg->height; ++v, depth_row += row_step)
   {
     for (int u = 0; u < (int)cloud_msg->width; ++u)
     {
-      pcl::PointXYZ& pt = *pt_iter++;
+      sensor_msgs::PointXYZ& pt = *pt_iter++;
       T depth = depth_row[u];
 
       // Missing points denoted by NaNs
